@@ -1,0 +1,38 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# --- secrets: this repo is public, never commit keys ---
+.env
+.env.*
+!.env.example
+*.key
+
+# --- local data (SQLite db, eval runs, exports) ---
+data/
+out/
+*.db
+*.db-shm
+*.db-wal
+evals/runs/
+
+# --- tooling caches ---
+.pytest_cache/
+.ruff_cache/
+
+# --- OS / editors ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# --- study material, kept local (same as the C# kata) ---
+docs/flashcards/
+docs/publications/

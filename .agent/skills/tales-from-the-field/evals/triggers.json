@@ -1,0 +1,66 @@
+[
+  {
+    "query": "tales from the field: let's write a technical deep dive on how StudyQueueCacheService handles Redis timeouts",
+    "should_trigger": true
+  },
+  {
+    "query": "write a field report from docs/system-design/realtime-quiz-state.md",
+    "should_trigger": true
+  },
+  {
+    "query": "We just finished Layer 2 of the deadlock-free-ledger kata. Draft a field report about this code for LinkedIn and Dev.to.",
+    "should_trigger": true
+  },
+  {
+    "query": "explain how this works on LinkedIn — turn our SELECT FOR UPDATE lock ordering fix into an engineering explainer with a Mermaid diagram",
+    "should_trigger": true
+  },
+  {
+    "query": "write an engineering explainer on why Process.Kill(entireProcessTree: true) was needed in CodeExecutionService.cs",
+    "should_trigger": true
+  },
+  {
+    "query": "Turn our verified system design dossier on srs-index-scaling into a Tales from the Field post and blog article",
+    "should_trigger": true
+  },
+  {
+    "query": "draft a field report about the optimistic UI state machine we built in Exercises.jsx",
+    "should_trigger": true
+  },
+  {
+    "query": "write a technical deep dive for Dev.to and LinkedIn from the capacity math we just did on AiCreditService",
+    "should_trigger": true
+  },
+  {
+    "query": "Explain how QuizRoomManager.cs works line by line and generate an Anki TSV flashcard deck for me",
+    "should_trigger": false
+  },
+  {
+    "query": "Let's stress-test the realtime quiz subsystem and do the back-of-the-envelope math for where it breaks",
+    "should_trigger": false
+  },
+  {
+    "query": "Plan a sub-project kata for the resilient-cache-aside mechanism in AnkiX",
+    "should_trigger": false
+  },
+  {
+    "query": "Write a Substack essay in the Religiously Vibe Coding voice about switching from data engineering to full-stack",
+    "should_trigger": false
+  },
+  {
+    "query": "Generate a launch tweet and promotional LinkedIn announcement for the new AnkiX Study Groups release",
+    "should_trigger": false
+  },
+  {
+    "query": "Fix the N+1 SaveChangesAsync loop inside FinalizeMatchAsync in QuizRoomManager.cs and run the unit tests",
+    "should_trigger": false
+  },
+  {
+    "query": "Walk me through ReviewSchedulerService.cs like a junior developer and quiz me on the SM-2 math",
+    "should_trigger": false
+  },
+  {
+    "query": "Whiteboard the database connection pooling limits on ApplicationDbContext when 50 quiz rooms finish at once",
+    "should_trigger": false
+  }
+]

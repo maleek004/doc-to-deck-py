@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>doc-to-deck</title>
+</head>
+<body>
+  <h1>doc-to-deck</h1>
+
+  <!-- Panel 1 (Layer 1): upload a file, see its outline -->
+  <section id="panel-parse">
+    <h2>1. Upload a document</h2>
+    <form id="parse-form">
+      <input type="file" name="file" accept=".md,.markdown,.pdf" required>
+      <button type="submit">Parse</button>
+    </form>
+    <p id="parse-status"></p>
+    <table id="outline" hidden border="1" cellpadding="4">
+      <thead>
+        <tr><th>#</th><th>Level</th><th>Title</th><th>Words</th><th>Snippet</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <script>
+    // What the server has told us so far. The server keeps nothing between calls,
+    // so each later step will send what the next one needs.
+    let parsed = null; // from /api/parse
+
+    const $ = (id) => document.getElementById(id);
+
+    // POST JSON (or a form) and return [ok, status, body]. Error bodies are { error, message }.
+    async function post(url, body) {
+      const isForm = body instanceof FormData;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: isForm ? {} : { "Content-Type": "application/json" },
+        body: isForm ? body : JSON.stringify(body)
+      });
+      const data = await response.json().catch(() => ({ error: "SERVER_ERROR", message: response.statusText }));
+      return [response.ok, response.status, data];
+    }
+
+    // Adds one row to a table body. textContent, never innerHTML: all of this text comes from an
+    // uploaded file, so it is untrusted and must never run as HTML.
+    function addRow(tbody, values) {
+      const row = tbody.insertRow();
+      for (const value of values) row.insertCell().textContent = value;
+      return row;
+    }
+
+    // ---------- Panel 1 ----------
+    $("parse-form").addEventListener("submit", async (event) => {
+      event.preventDefault(); // stay on this page instead of doing a full-page form post
+
+      $("parse-status").textContent = "Parsing…";
+      $("outline").hidden = true;
+      $("outline").tBodies[0].replaceChildren();
+
+      const [ok, status, body] = await post("/api/parse", new FormData($("parse-form")));
+      if (!ok) {
+        $("parse-status").textContent = `Error ${status} ${body.error}: ${body.message}`;
+        return;
+      }
+
+      parsed = body;
+      const doc = body.document;
+      $("parse-status").textContent =
+        `${body.fileName}: ${doc.pageCount} page(s), ${doc.wordCount} words, ${doc.sections.length} section(s).`;
+      doc.sections.forEach((s, i) =>
+        addRow($("outline").tBodies[0], [i, s.level, s.title, s.wordCount, s.snippet]));
+      $("outline").hidden = false;
+    });
+  </script>
+</body>
+</html>
