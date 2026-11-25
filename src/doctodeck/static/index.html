@@ -24,10 +24,39 @@
     </table>
   </section>
 
+  <!-- Panel 2 (Layer 2): plan modules, then generate cards -->
+  <section id="panel-generate" hidden>
+    <h2>2. Plan and generate</h2>
+    <p>
+      <label>Provider <select id="provider"></select></label>
+      <button id="plan-button" type="button">Plan modules</button>
+    </p>
+    <p id="plan-status"></p>
+    <table id="modules" hidden border="1" cellpadding="4">
+      <thead>
+        <tr><th>Use</th><th>#</th><th>Title</th><th>Description</th><th>Est. cards</th><th>Sections</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p id="generate-controls" hidden>
+      <label>Cards <input id="card-count" type="number" min="3" max="30" value="10"></label>
+      <button id="generate-button" type="button">Generate cards</button>
+    </p>
+    <p id="generate-status"></p>
+    <table id="cards" hidden border="1" cellpadding="4">
+      <thead>
+        <tr><th>#</th><th>Module</th><th>Front</th><th>Back</th><th>Quality</th><th>Flags</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <ul id="repairs"></ul>
+  </section>
+
   <script>
     // What the server has told us so far. The server keeps nothing between calls,
-    // so each later step will send what the next one needs.
+    // so each step sends what the next one needs.
     let parsed = null; // from /api/parse
+    let plan = null;   // from /api/plan
 
     const $ = (id) => document.getElementById(id);
 
@@ -44,11 +73,22 @@
     }
 
     // Adds one row to a table body. textContent, never innerHTML: all of this text comes from an
-    // uploaded file, so it is untrusted and must never run as HTML.
+    // uploaded file or a model, so it is untrusted and must never run as HTML.
     function addRow(tbody, values) {
       const row = tbody.insertRow();
       for (const value of values) row.insertCell().textContent = value;
       return row;
+    }
+
+    const usageText = (u) =>
+      `${u.provider}/${u.model}: ${u.promptTokens} tokens in, ${u.completionTokens} out, ${u.latencyMs} ms`;
+
+    function showRepairs(list) {
+      $("repairs").replaceChildren(...list.map((text) => {
+        const li = document.createElement("li");
+        li.textContent = "Fixed: " + text;
+        return li;
+      }));
     }
 
     // ---------- Panel 1 ----------
@@ -58,6 +98,7 @@
       $("parse-status").textContent = "Parsing…";
       $("outline").hidden = true;
       $("outline").tBodies[0].replaceChildren();
+      $("panel-generate").hidden = true;
 
       const [ok, status, body] = await post("/api/parse", new FormData($("parse-form")));
       if (!ok) {
@@ -72,7 +113,96 @@
       doc.sections.forEach((s, i) =>
         addRow($("outline").tBodies[0], [i, s.level, s.title, s.wordCount, s.snippet]));
       $("outline").hidden = false;
+
+      resetPlan();
+      $("panel-generate").hidden = false;
     });
+
+    // ---------- Panel 2 ----------
+    async function loadProviders() {
+      const providers = await (await fetch("/api/providers")).json();
+      $("provider").replaceChildren(...providers.map((p) => {
+        const option = document.createElement("option");
+        option.value = p.provider;
+        option.textContent = `${p.provider} (${p.model})${p.isReal ? "" : " (no key needed)"}`;
+        return option;
+      }));
+    }
+
+    function resetPlan() {
+      plan = null;
+      for (const id of ["modules", "cards", "generate-controls"]) $(id).hidden = true;
+      $("modules").tBodies[0].replaceChildren();
+      $("cards").tBodies[0].replaceChildren();
+      $("plan-status").textContent = $("generate-status").textContent = "";
+      showRepairs([]);
+    }
+
+    $("plan-button").addEventListener("click", async () => {
+      resetPlan();
+      $("plan-status").textContent = "Planning…";
+
+      const doc = parsed.document;
+      const [ok, status, body] = await post("/api/plan", {
+        provider: $("provider").value,
+        sourceTitle: parsed.fileName,
+        sections: doc.sections,
+        wordCount: doc.wordCount,
+        pageCount: doc.pageCount
+      });
+      if (!ok) {
+        $("plan-status").textContent = `Error ${status} ${body.error}: ${body.message}`;
+        return;
+      }
+
+      plan = body;
+      $("plan-status").textContent = `${body.modules.length} module(s). ${usageText(body.usage)}.`;
+      for (const m of body.modules) {
+        const row = addRow($("modules").tBodies[0],
+          ["", m.moduleIndex, m.title, m.description, m.estimatedCards, m.sectionIndices.join(", ")]);
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = true;
+        box.dataset.moduleIndex = m.moduleIndex;
+        row.cells[0].appendChild(box);
+      }
+      showRepairs(body.repairs);
+      $("modules").hidden = $("generate-controls").hidden = false;
+    });
+
+    $("generate-button").addEventListener("click", async () => {
+      const picked = [...$("modules").querySelectorAll("input[type=checkbox]:checked")]
+        .map((box) => Number(box.dataset.moduleIndex));
+      const modules = plan.modules.filter((m) => picked.includes(m.moduleIndex));
+
+      $("cards").hidden = true;
+      $("cards").tBodies[0].replaceChildren();
+      $("generate-status").textContent = "Generating…";
+
+      const [ok, status, body] = await post("/api/generate", {
+        provider: $("provider").value,
+        sourceTitle: parsed.fileName,
+        sections: parsed.document.sections,
+        cleanText: parsed.document.cleanText,
+        modules,
+        targetCardCount: Number($("card-count").value)
+      });
+      if (!ok) {
+        $("generate-status").textContent = `Error ${status} ${body.error}: ${body.message}`;
+        return;
+      }
+
+      const cut = body.truncated
+        ? ` Note: only the first ${body.sentChars} of ${body.totalChars} characters were sent to the model.`
+        : "";
+      $("generate-status").textContent = `${body.cards.length} card(s). ${usageText(body.usage)}.${cut}`;
+      body.cards.forEach((c, i) =>
+        addRow($("cards").tBodies[0], [i + 1, c.moduleTitle, c.front, c.back, c.qualityScore, c.qualityFlags.join(", ")]));
+      showRepairs(body.repairs);
+      $("cards").hidden = false;
+    });
+
+    loadProviders();
   </script>
 </body>
 </html>
