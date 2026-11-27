@@ -44,7 +44,8 @@ def test_plan_then_generate_works_end_to_end_on_the_fake(client):
     body = generate.json()
     assert body["cards"]
     assert all(card["qualityScore"] for card in body["cards"])
-    assert set(body["usage"]) == {"provider", "model", "promptTokens", "completionTokens", "latencyMs"}
+    assert set(body["usage"]) == {"provider", "model", "promptTokens", "completionTokens", "latencyMs", "cached"}
+    assert body["usage"]["cached"] is False  # the fake is never cached
 
 
 def test_unknown_provider_is_a_400(client):

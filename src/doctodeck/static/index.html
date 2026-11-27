@@ -81,7 +81,8 @@
     }
 
     const usageText = (u) =>
-      `${u.provider}/${u.model}: ${u.promptTokens} tokens in, ${u.completionTokens} out, ${u.latencyMs} ms`;
+      `${u.provider}/${u.model}: ${u.promptTokens} tokens in, ${u.completionTokens} out, ${u.latencyMs} ms` +
+      (u.cached ? " (from the cache: no call made, figures are from the original call)" : "");
 
     function showRepairs(list) {
       $("repairs").replaceChildren(...list.map((text) => {

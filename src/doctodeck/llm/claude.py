@@ -66,6 +66,11 @@ class ClaudeClient:
     def model(self) -> str:
         return self._options.model
 
+    @property
+    def settings(self) -> dict[str, Any]:
+        """What shapes the answer besides the prompts and schema; part of the response cache's key."""
+        return {"effort": self._options.effort, "max_tokens": self._options.max_tokens}
+
     async def aclose(self) -> None:
         await self._sdk.close()
 

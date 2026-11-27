@@ -42,6 +42,9 @@ class LlmUsage(ApiModel):
     prompt_tokens: int
     completion_tokens: int
     latency_ms: int
+    # True when the answer came from the response cache (llm/cache.py). Tokens and latency are then those of the
+    # call that first made the answer, so comparisons still hold; Layer 4 charges nothing for a cached call.
+    cached: bool = False
 
 
 @dataclass(frozen=True)

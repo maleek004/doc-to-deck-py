@@ -15,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 
 from doctodeck.errors import DocumentErrorCode, DocumentParsingError
+from doctodeck.llm.cache import ResponseCache
 from doctodeck.llm.contracts import LlmError, LlmErrorCode
 from doctodeck.llm.registry import LlmRegistry, build_registry
 from doctodeck.models import ApiModel, ParsedDocument
@@ -115,7 +116,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     connections to the providers; opening a new client per call would redo the TCP + TLS handshake
     every time. `async with` closes the pool cleanly at shutdown."""
     async with httpx.AsyncClient() as http:
-        app.state.llms = build_registry(http)
+        # LLM_CACHE set: real providers answer repeat requests from a SQLite file (llm/cache.py).
+        app.state.llms = build_registry(http, ResponseCache.from_env())
         try:
             yield
         finally:

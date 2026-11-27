@@ -172,12 +172,59 @@ async def test_retry_after_as_an_http_date_sets_the_wait(client, gemini, waits):
     assert 3 < waits[0] <= 5  # the date has 1-second precision, and a moment passes
 
 
-async def test_retry_after_longer_than_the_cap_is_capped(client, gemini, waits):
-    gemini.side_effect = [error(429, headers={"Retry-After": "3600"}), ok()]
+def quota_error(
+    retry_delay: str, quota_id: str = "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"
+) -> httpx.Response:
+    """A 429 as Gemini's free tier really sends it: the wait is in the body as RetryInfo, not in a header."""
+    return httpx.Response(429, json={"error": {
+        "code": 429,
+        "message": "You exceeded your current quota. Please retry in 18.2s.",
+        "status": "RESOURCE_EXHAUSTED",
+        "details": [
+            {"@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": [{"quotaId": quota_id}]},
+            {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": retry_delay},
+        ],
+    }})  # fmt: skip
+
+
+async def test_a_short_retry_delay_in_the_body_sets_the_wait(client, gemini, waits):
+    gemini.side_effect = [quota_error("3s"), ok()]
 
     await client.complete(REQUEST)
 
-    assert waits == [10.0]
+    assert waits == [3.0]
+
+
+async def test_a_retry_delay_longer_than_the_cap_fails_at_once_and_says_when(client, gemini, waits):
+    gemini.side_effect = [quota_error("18s"), ok()]
+
+    failure = await fails_with(client)
+
+    assert failure.code == LlmErrorCode.RATE_LIMITED
+    assert gemini.call_count == 1  # retrying sooner than asked is certain to fail and spends quota
+    assert waits == []
+    assert "Retry in about 18 s" in failure.message
+
+
+async def test_the_daily_limit_says_so_and_gives_the_wait_in_hours(client, gemini):
+    # The real shape Gemini sent on 2026-11-27 once gemini-2.5-flash's 20 free requests for the day were spent.
+    gemini.return_value = quota_error("12678s", "GenerateRequestsPerDayPerProjectPerModel-FreeTier")
+
+    failure = await fails_with(client)
+
+    assert gemini.call_count == 1
+    assert "daily request limit" in failure.message
+    assert "Retry in about 3.5 h" in failure.message
+
+
+async def test_a_retry_after_header_longer_than_the_cap_fails_at_once(client, gemini, waits):
+    gemini.side_effect = [error(503, headers={"Retry-After": "3600"}), ok()]
+
+    failure = await fails_with(client)
+
+    assert failure.code == LlmErrorCode.RATE_LIMITED
+    assert gemini.call_count == 1
+    assert "Retry in about 60 min" in failure.message
 
 
 async def test_still_rate_limited_after_all_retries_is_rate_limited(client, gemini, waits):
@@ -229,14 +276,28 @@ async def test_a_400_carries_geminis_own_message(client, gemini):
     assert "Invalid JSON payload received." in (await fails_with(client)).message
 
 
-async def test_timeouts_are_retried_then_reported_as_timeout(client, gemini, waits):
+async def test_a_timeout_is_retried_only_once_then_reported_as_timeout(client, gemini, waits):
     gemini.side_effect = httpx.ReadTimeout("slow")
 
     failure = await fails_with(client)
 
     assert failure.code == LlmErrorCode.TIMEOUT
-    assert gemini.call_count == 4
+    assert gemini.call_count == 2  # max_timeout_retries=1: a slow request will likely be slow again
+    assert len(waits) == 1
     assert isinstance(failure.__cause__, httpx.ReadTimeout)
+
+
+async def test_a_timeout_then_an_overload_still_gets_the_other_retries(client, gemini):
+    gemini.side_effect = [httpx.ReadTimeout("slow"), error(503), ok()]
+
+    result = await client.complete(REQUEST)
+
+    assert result.data.modules[0].title == "A"
+    assert gemini.call_count == 3  # the timeout limit is its own; other transient failures use max_retries
+
+
+def test_the_default_deadline_leaves_room_for_a_big_batch():
+    assert GeminiOptions(api_key=KEY).attempt_timeout >= 90
 
 
 async def test_a_slow_attempt_hits_the_overall_deadline(gemini, waits):

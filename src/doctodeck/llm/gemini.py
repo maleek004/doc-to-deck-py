@@ -38,9 +38,16 @@ class GeminiOptions:
     model: str = "gemini-3.8-flash"  # the model AnkiX uses
     base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     max_retries: int = 3  # retries after the first attempt: up to 4 attempts in all
-    attempt_timeout: float = 30.0  # seconds one whole attempt may take
+    # Seconds one whole attempt may take. Generating a 30-card batch from 12,000 characters can take well over
+    # 30 s (the C# kata's value), and a deadline that cuts off a working generation only buys a costly retry.
+    attempt_timeout: float = 90.0
+    # Of max_retries, how many may follow a timeout. A request that timed out once will likely time out again,
+    # and every attempt counts against the quota (free tier: 5 requests per minute), so retry it only once.
+    max_timeout_retries: int = 1
     base_delay: float = 0.5  # first backoff; doubles each retry: 0.5 s, 1 s, 2 s (+ jitter)
-    max_delay: float = 10.0  # no single wait is longer, even if Retry-After asks for more
+    # The longest wait we will sit through inside one request. If Gemini asks for longer (e.g. "retry in 18 s"
+    # on a per-minute quota), retrying sooner is certain to fail again, so the call fails at once and says when.
+    max_delay: float = 10.0
     temperature: float = 0.2  # extracting facts should be faithful and repeatable, not creative
 
     @classmethod
@@ -83,6 +90,7 @@ class GeminiClient:
         headers = {"x-goog-api-key": options.api_key}
         body = self._build_body(request)
         started = time.perf_counter()
+        timeouts = 0
 
         for attempt in range(options.max_retries + 1):
             last = attempt == options.max_retries
@@ -94,10 +102,12 @@ class GeminiClient:
             except (TimeoutError, httpx.TimeoutException) as ex:
                 # asyncio.timeout turns its own cancellation into TimeoutError. A cancellation from outside
                 # (the client went away) stays CancelledError, which isn't caught here: it is never retried.
-                if last:
+                timeouts += 1
+                if last or timeouts > options.max_timeout_retries:
                     raise LlmError(
                         LlmErrorCode.TIMEOUT,
-                        f"Gemini didn't answer within {options.attempt_timeout:g} s, {attempt + 1} times.",
+                        f"Gemini didn't answer within {options.attempt_timeout:g} s, {timeouts} times. "
+                        "A large document or card count can take this long; try fewer cards.",
                     ) from ex
                 await self._wait(attempt, None, "timeout")
                 continue
@@ -119,19 +129,22 @@ class GeminiClient:
                 return LlmResult(parse_output(text, request.output_type, self.provider), usage)
 
             if response.status_code in TRANSIENT_STATUSES and not last:
-                await self._wait(attempt, response.headers.get("retry-after"), f"HTTP {response.status_code}")
+                asked = _server_retry_delay(response)
+                if asked is not None and asked > options.max_delay:
+                    # Retrying before the server's time is up is certain to fail and spends quota: stop now.
+                    raise _to_error(response, attempts=attempt + 1, retry_in=asked)
+                await self._wait(attempt, asked, f"HTTP {response.status_code}")
                 continue
 
-            raise _to_error(response, attempts=attempt + 1)
+            raise _to_error(response, attempts=attempt + 1, retry_in=_server_retry_delay(response))
 
         raise AssertionError("unreachable: the last attempt always returns or raises")
 
-    async def _wait(self, attempt: int, retry_after: str | None, reason: str) -> None:
+    async def _wait(self, attempt: int, asked: float | None, reason: str) -> None:
         """Exponential backoff with jitter: 0.5 s, 1 s, 2 s... plus up to 250 ms of randomness, capped.
-        A server's Retry-After wins (still capped). Jitter spreads out clients that failed at the same
+        A wait the server asked for wins (still capped). Jitter spreads out clients that failed at the same
         moment, so they don't all come back in the same instant and knock the server over again."""
         options = self._options
-        asked = _retry_after_seconds(retry_after)
         if asked is not None and asked > 0:
             delay = asked
         else:
@@ -141,21 +154,28 @@ class GeminiClient:
         log.warning("Gemini %s; retry %d of %d in %d ms.", reason, attempt + 1, options.max_retries, delay * 1000)
         await self._sleep(delay)
 
-    def _build_body(self, request: LlmRequest) -> dict[str, Any]:
-        generation_config: dict[str, Any] = {
-            "responseMimeType": "application/json",
-            "responseSchema": to_gemini_schema(request.json_schema()),
-            "temperature": self._options.temperature,
-        }
+    @property
+    def settings(self) -> dict[str, Any]:
+        """The generation settings that shape the answer, besides the prompts and schema. The response cache puts
+        them in its key, so changing the temperature or thinking can't serve an answer made under the old ones."""
+        settings: dict[str, Any] = {"temperature": self._options.temperature}
         # Newer models "think" before answering, and thinking tokens bill at the output rate. Extraction needs
         # little of it, and unbounded thinking can push one call past the attempt timeout. The knob differs by
         # generation: Gemini 3 takes a level; Gemini 2.5 Flash takes a token budget, where 0 turns it off.
         # (2.5 Pro can't turn thinking off, so it is left at its default.)
         model = self._options.model.lower()
         if model.startswith("gemini-3"):
-            generation_config["thinkingConfig"] = {"thinkingLevel": "low"}
+            settings["thinkingConfig"] = {"thinkingLevel": "low"}
         elif model.startswith("gemini-2.5-flash"):
-            generation_config["thinkingConfig"] = {"thinkingBudget": 0}
+            settings["thinkingConfig"] = {"thinkingBudget": 0}
+        return settings
+
+    def _build_body(self, request: LlmRequest) -> dict[str, Any]:
+        generation_config: dict[str, Any] = {
+            "responseMimeType": "application/json",
+            "responseSchema": to_gemini_schema(request.json_schema()),
+            **self.settings,
+        }
 
         return {
             "systemInstruction": {"parts": [{"text": request.system_prompt}]},
@@ -216,8 +236,66 @@ def _retry_after_seconds(value: str | None) -> float | None:
         return None  # unreadable: fall back to our own backoff
 
 
-def _to_error(response: httpx.Response, attempts: int) -> LlmError:
+_RETRY_INFO_TYPE = "type.googleapis.com/google.rpc.RetryInfo"
+
+
+def _server_retry_delay(response: httpx.Response) -> float | None:
+    """How long the server asked us to wait, in seconds, or None if it didn't say.
+
+    The standard Retry-After header wins. Gemini rarely sends it: on a 429 it puts the wait in the error body
+    instead, as a google.rpc.RetryInfo detail with a Duration string:
+    {"error": {"details": [{"@type": ".../google.rpc.RetryInfo", "retryDelay": "18s"}]}}."""
+    header = _retry_after_seconds(response.headers.get("retry-after"))
+    if header is not None:
+        return header
+    try:
+        details = response.json()["error"]["details"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    if not isinstance(details, list):
+        return None
+    for detail in details:
+        if isinstance(detail, dict) and detail.get("@type") == _RETRY_INFO_TYPE:
+            delay = detail.get("retryDelay")
+            # A protobuf Duration in JSON is decimal seconds with an "s" suffix: "18s", "0.5s", "1.250s".
+            if isinstance(delay, str) and delay.endswith("s"):
+                try:
+                    return float(delay[:-1])
+                except ValueError:
+                    return None
+    return None
+
+
+def _duration(seconds: float) -> str:
+    """18 → "18 s", 300 → "5 min", 12678 → "3.5 h": a wait a person can read."""
+    if seconds < 120:
+        return f"{seconds:.0f} s"
+    if seconds < 7200:
+        return f"{seconds / 60:.0f} min"
+    return f"{seconds / 3600:.1f} h"
+
+
+def _is_daily_quota(response: httpx.Response) -> bool:
+    """Gemini's QuotaFailure detail names the limit hit, e.g. quotaId "GenerateRequestsPerDayPerProjectPerModel-
+    FreeTier". A per-day limit is worth saying out loud: waiting a minute won't help, another model or tier will."""
+    try:
+        details = response.json()["error"]["details"]
+        return any(
+            "PerDay" in str(violation.get("quotaId", ""))
+            for detail in details
+            if isinstance(detail, dict)
+            for violation in detail.get("violations") or []
+            if isinstance(violation, dict)
+        )
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return False
+
+
+def _to_error(response: httpx.Response, attempts: int, retry_in: float | None = None) -> LlmError:
     status = response.status_code
+    when = f" Retry in about {_duration(retry_in)}." if retry_in is not None and retry_in > 0 else ""
+    if _is_daily_quota(response):
+        when = " This is the daily request limit." + when
     # Gemini errors look like {"error": {"code": 400, "message": "...", "status": "INVALID_ARGUMENT"}}.
     try:
         detail = response.json()["error"]["message"]
@@ -235,13 +313,14 @@ def _to_error(response: httpx.Response, attempts: int) -> LlmError:
     # Gemini's own message says which, e.g. "This model is currently experiencing high demand", so pass it on.
     if status == 429:
         return LlmError(
-            LlmErrorCode.RATE_LIMITED, f"Gemini rate limit or quota reached (HTTP 429, {attempts} attempts): {detail}"
+            LlmErrorCode.RATE_LIMITED,
+            f"Gemini rate limit or quota reached (HTTP 429, {attempts} attempts).{when} Gemini said: {detail}",
         )
     if status == 503:
         return LlmError(
             LlmErrorCode.RATE_LIMITED,
-            f"Gemini is overloaded (HTTP 503, {attempts} attempts). Try again shortly, or set another GEMINI_MODEL. "
-            f"Gemini said: {detail}",
+            f"Gemini is overloaded (HTTP 503, {attempts} attempts).{when} Try again shortly, or set another "
+            f"GEMINI_MODEL. Gemini said: {detail}",
         )
     if status in (408, 504):
         return LlmError(LlmErrorCode.TIMEOUT, f"Gemini timed out (HTTP {status}, {attempts} attempts): {detail}")
