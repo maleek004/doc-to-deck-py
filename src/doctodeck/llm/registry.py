@@ -2,8 +2,11 @@
 
 from collections.abc import Iterable
 
+import httpx
+
 from doctodeck.llm.contracts import LlmClient, LlmError, LlmErrorCode
 from doctodeck.llm.fake import FakeLlmClient
+from doctodeck.llm.gemini import GeminiClient, GeminiOptions
 
 
 class LlmRegistry:
@@ -22,6 +25,10 @@ class LlmRegistry:
         return client
 
 
-def build_registry() -> LlmRegistry:
-    """The app's providers. 2.1: only the fake. 2.2 and 2.3 add Gemini and Claude when their keys are set."""
-    return LlmRegistry([FakeLlmClient()])
+def build_registry(http: httpx.AsyncClient) -> LlmRegistry:
+    """The app's providers: the fake always; Gemini only when GEMINI_API_KEY is set (Claude joins in 2.3).
+    A provider with no key is simply absent, so the app still works end to end on the fake."""
+    clients: list[LlmClient] = [FakeLlmClient()]
+    if gemini := GeminiOptions.from_env():
+        clients.append(GeminiClient(gemini, http))
+    return LlmRegistry(clients)

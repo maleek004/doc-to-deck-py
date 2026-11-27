@@ -3,9 +3,12 @@
 Run it with `uv run doctodeck` (or `uv run uvicorn doctodeck.app:app --reload --port 8000`).
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 from fastapi import Depends, FastAPI, File, Request, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
@@ -61,7 +64,7 @@ def get_parser_options() -> ParserOptions:
 
 
 def get_llm_registry(request: Request) -> LlmRegistry:
-    """The registry built once in create_app(). Tests override this to add a scripted fake."""
+    """The registry built once at startup (see lifespan). Tests override this to add a scripted fake."""
     return request.app.state.llms
 
 
@@ -106,9 +109,18 @@ def error_response(status_code: int, code: str, message: str) -> JSONResponse:
     return JSONResponse(ApiError(error=code, message=message).model_dump(by_alias=True), status_code=status_code)
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Runs once around the app's whole life. One shared httpx.AsyncClient keeps a pool of open
+    connections to the providers; opening a new client per call would redo the TCP + TLS handshake
+    every time. `async with` closes the pool cleanly at shutdown."""
+    async with httpx.AsyncClient() as http:
+        app.state.llms = build_registry(http)
+        yield
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="doc-to-deck")
-    app.state.llms = build_registry()
+    app = FastAPI(title="doc-to-deck", lifespan=lifespan)
 
     @app.exception_handler(DocumentParsingError)
     async def on_parsing_error(_: Request, ex: DocumentParsingError) -> JSONResponse:
