@@ -1,0 +1,66 @@
+title = "Photosynthesis"
+domain = "biology"
+why = "Plain science prose with a chemical equation, a process in two stages, and an out-of-scope mention (respiration) the deck must not stray into."
+
+modules = { min = 2, max = 4 }
+cards = { min = 6, max = 20 }
+
+[[facts]]
+id = "inputs-outputs"
+text = "Photosynthesis turns carbon dioxide and water into glucose, releasing oxygen."
+terms = ["glucose|C6H12O6", "oxygen|O2"]
+
+[[facts]]
+id = "chloroplast"
+text = "In plants it takes place in chloroplasts, which contain thylakoids and stroma."
+terms = ["chloroplast*|thylakoid*"]
+
+[[facts]]
+id = "chlorophyll-green"
+text = "Chlorophyll a absorbs mostly blue and red light and reflects green."
+terms = ["chlorophyll", "green|blue|red"]
+
+[[facts]]
+id = "photolysis"
+text = "Photolysis splits water in the light-dependent reactions, releasing the oxygen."
+terms = ["photolysis|split*", "water|H2O"]
+
+[[facts]]
+id = "atp-nadph"
+text = "The light-dependent reactions store energy in ATP and NADPH."
+terms = ["ATP", "NADPH"]
+
+[[facts]]
+id = "calvin-stroma"
+text = "The Calvin cycle takes place in the stroma and fixes CO2 into sugar."
+terms = ["Calvin", "stroma|fix*"]
+
+[[facts]]
+id = "rubisco"
+text = "RuBisCO attaches CO2 to RuBP."
+terms = ["RuBisCO"]
+
+[[facts]]
+id = "limiting-factors"
+text = "The rate is set by the limiting factor: light intensity, CO2 concentration or temperature."
+terms = ["limit*", "light|carbon dioxide|CO2|temperature"]
+
+[[facts]]
+id = "c4"
+text = "C4 plants such as maize separate CO2 fixation and the Calvin cycle in space."
+terms = ["C4"]
+
+[[facts]]
+id = "cam"
+text = "CAM plants such as cacti open their stomata at night, separating the steps in time."
+terms = ["CAM", "night|stomata|time"]
+
+[[must_not]]
+id = "respiration"
+text = "Cellular respiration is mentioned only as covered elsewhere; a card about it is off-topic."
+terms = ["respiration"]
+
+[[must_not]]
+id = "further-reading"
+text = "The textbook pointer and credits are not study material."
+terms = ["textbook|chapter 8|course team"]

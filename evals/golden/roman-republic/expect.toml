@@ -1,0 +1,61 @@
+title = "The Roman Republic"
+domain = "history"
+why = "The PDF case: headings guessed from numbering and a trailing colon, a running header and page footers to strip, and dates that must survive intact."
+
+modules = { min = 2, max = 4 }
+cards = { min = 6, max = 20 }
+
+[[facts]]
+id = "founding"
+text = "In 509 BC the Romans expelled their last king, Tarquin the Proud, and founded the Republic."
+terms = ["509 BC|Tarquin*"]
+
+[[facts]]
+id = "consuls"
+text = "Two consuls were elected every year, and each could veto the other."
+terms = ["consul*", "two|veto|every year|annual*"]
+
+[[facts]]
+id = "dictator"
+text = "In an emergency a dictator could hold supreme power for at most six months."
+terms = ["dictator", "six months|emergenc*"]
+
+[[facts]]
+id = "senate"
+text = "The Senate, mostly former magistrates, formally advised but controlled finance and foreign policy."
+terms = ["Senate"]
+
+[[facts]]
+id = "tribunes"
+text = "The plebeians won tribunes of the plebs, who could veto magistrates' acts."
+terms = ["tribune*", "pleb*|veto"]
+
+[[facts]]
+id = "twelve-tables"
+text = "Around 450 BC the laws were written down as the Twelve Tables."
+terms = ["Twelve Tables"]
+
+[[facts]]
+id = "hannibal"
+text = "Hannibal crossed the Alps in 218 BC and won at Cannae in 216 BC."
+terms = ["Hannibal|Cannae"]
+
+[[facts]]
+id = "carthage-destroyed"
+text = "Rome destroyed Carthage in 146 BC, at the end of the third war."
+terms = ["Carthage", "146 BC|destroy*"]
+
+[[facts]]
+id = "caesar"
+text = "Caesar crossed the Rubicon in 49 BC and was assassinated on the Ides of March, 44 BC."
+terms = ["Caesar|Rubicon|Ides of March"]
+
+[[facts]]
+id = "augustus"
+text = "In 27 BC Octavian took the name Augustus and became the first emperor."
+terms = ["Augustus|Octavian"]
+
+[[must_not]]
+id = "about-these-notes"
+text = "The note about the notes is not study material."
+terms = ["golden set|peer reviewed"]

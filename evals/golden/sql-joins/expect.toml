@@ -1,0 +1,51 @@
+title = "SQL joins"
+domain = "databases"
+why = "The awkward case: Markdown tables, SQL code blocks, and a Python block whose '#' comments must not become headings. Facts live partly in code and result tables."
+
+modules = { min = 2, max = 4 }
+cards = { min = 6, max = 20 }
+
+[[facts]]
+id = "inner-join"
+text = "An inner join returns only rows that match in both tables."
+terms = ["inner", "match*|both"]
+
+[[facts]]
+id = "left-join-null"
+text = "A left join keeps every left row and fills missing right columns with NULL."
+terms = ["left", "NULL"]
+
+[[facts]]
+id = "anti-join"
+text = "LEFT JOIN ... WHERE right.id IS NULL finds left rows with no match (an anti-join)."
+terms = ["IS NULL|anti-join|anti join", "no match*|never|without|no partner|no order*"]
+
+[[facts]]
+id = "full-outer"
+text = "A full outer join keeps unmatched rows from both sides."
+terms = ["full outer|full join"]
+
+[[facts]]
+id = "mysql-full-outer"
+text = "MySQL has no FULL OUTER JOIN; it is emulated with a UNION of a left and a right join."
+terms = ["MySQL", "UNION|emulat*|not support*|no full"]
+
+[[facts]]
+id = "cross-join"
+text = "A cross join is the Cartesian product: m x n rows."
+terms = ["cross join|Cartesian"]
+
+[[facts]]
+id = "where-vs-on"
+text = "A right-table condition in WHERE turns a left join into an inner join; put it in ON."
+terms = ["WHERE", "ON clause|into an inner|inner join"]
+
+[[must_not]]
+id = "fictional-data"
+text = "The note about the sample data being made up is not study material."
+terms = ["fictional|made up"]
+
+[[must_not]]
+id = "running-the-examples"
+text = "How to run the examples locally is setup, not SQL knowledge."
+terms = ["sqlite3|:memory:|standard library"]

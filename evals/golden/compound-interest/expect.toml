@@ -1,0 +1,51 @@
+title = "Compound interest"
+domain = "personal finance"
+why = "Formulas and worked numbers: cards must keep exact figures (1,628.89, 12.68%) and the definitions behind them."
+
+modules = { min = 2, max = 4 }
+cards = { min = 6, max = 18 }
+
+[[facts]]
+id = "compound-vs-simple"
+text = "Compound interest earns interest on past interest; simple interest only on the principal."
+terms = ["compound*", "simple|interest on*"]
+
+[[facts]]
+id = "formula"
+text = "A = P(1 + r/n)^(nt): principal P, annual rate r, n compoundings per year, t years."
+terms = ["P(1 + r/n)|principal"]
+
+[[facts]]
+id = "worked-example"
+text = "1,000 at 5% compounded yearly for 10 years grows to 1,628.89 (simple interest: 1,500)."
+terms = ["1,628.89"]
+
+[[facts]]
+id = "frequency"
+text = "Compounding more often gives slightly more: monthly 1,647.01, continuous 1,648.72."
+terms = ["monthly|continuous*|frequen*", "1,647.01|1,648.72|more often"]
+
+[[facts]]
+id = "continuous"
+text = "Continuous compounding uses A = Pe^(rt)."
+terms = ["Pe^(rt)|continuous*"]
+
+[[facts]]
+id = "rule-of-72"
+text = "Rule of 72: years to double is about 72 divided by the rate in percent."
+terms = ["72", "doubl*"]
+
+[[facts]]
+id = "apr-apy"
+text = "APY includes compounding: 12% APR compounded monthly is an APY of 12.68%."
+terms = ["APY|effective annual", "12.68%|APR|compound*"]
+
+[[facts]]
+id = "real-return"
+text = "The real return is roughly the nominal rate minus inflation."
+terms = ["inflation", "real"]
+
+[[must_not]]
+id = "disclaimer"
+text = "The disclaimer and rounding note are not study material."
+terms = ["financial advice|nearest cent"]

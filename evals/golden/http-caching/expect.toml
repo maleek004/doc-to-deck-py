@@ -1,0 +1,56 @@
+title = "HTTP caching"
+domain = "web engineering"
+why = "Dense technical prose with header names in code spans, and a pair of directives (no-cache, no-store) that models often confuse."
+
+modules = { min = 2, max = 4 }
+cards = { min = 6, max = 20 }
+
+[[facts]]
+id = "max-age"
+text = "Cache-Control: max-age gives how many seconds a response stays fresh."
+terms = ["max-age", "second*|fresh*"]
+
+[[facts]]
+id = "s-maxage"
+text = "s-maxage applies only to shared caches such as a CDN."
+terms = ["s-maxage", "shared|CDN*|prox*"]
+
+[[facts]]
+id = "etag-304"
+text = "Revalidating with an ETag (If-None-Match) gets 304 Not Modified, with no body, when nothing changed."
+terms = ["ETag|If-None-Match", "304|Not Modified"]
+
+[[facts]]
+id = "last-modified"
+text = "With a Last-Modified date, the cache revalidates using If-Modified-Since."
+terms = ["Last-Modified|If-Modified-Since"]
+
+[[facts]]
+id = "no-cache"
+text = "no-cache allows storing but requires revalidation before every use."
+terms = ["no-cache", "revalidat*"]
+
+[[facts]]
+id = "no-store"
+text = "no-store forbids storing the response at all."
+terms = ["no-store"]
+
+[[facts]]
+id = "private"
+text = "private means only the browser may store the response, not shared caches."
+terms = ["private", "browser|shared"]
+
+[[facts]]
+id = "vary"
+text = "Vary adds request headers to the cache key, e.g. separate gzip and plain variants."
+terms = ["Vary"]
+
+[[facts]]
+id = "fingerprinting"
+text = "Fingerprinted file names let assets be cached for a year as immutable, since a change makes a new URL."
+terms = ["fingerprint*|hash*|immutable", "name*|URL*"]
+
+[[must_not]]
+id = "about-these-notes"
+text = "The closing note about the notes themselves is not study material."
+terms = ["golden set|Last revised|Corrections welcome"]
