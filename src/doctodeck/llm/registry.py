@@ -4,6 +4,7 @@ from collections.abc import Iterable
 
 import httpx
 
+from doctodeck.llm.claude import ClaudeClient, ClaudeOptions
 from doctodeck.llm.contracts import LlmClient, LlmError, LlmErrorCode
 from doctodeck.llm.fake import FakeLlmClient
 from doctodeck.llm.gemini import GeminiClient, GeminiOptions
@@ -24,11 +25,20 @@ class LlmRegistry:
             raise LlmError(LlmErrorCode.UNKNOWN_PROVIDER, f"Unknown provider '{provider}'. Available: {known}.")
         return client
 
+    async def aclose(self) -> None:
+        """Close what clients own (the Claude SDK's connection pool). Called once, at app shutdown."""
+        for client in self._by_provider.values():
+            close = getattr(client, "aclose", None)
+            if close is not None:
+                await close()
+
 
 def build_registry(http: httpx.AsyncClient) -> LlmRegistry:
-    """The app's providers: the fake always; Gemini only when GEMINI_API_KEY is set (Claude joins in 2.3).
+    """The app's providers: the fake always; Gemini and Claude only when their keys are set.
     A provider with no key is simply absent, so the app still works end to end on the fake."""
     clients: list[LlmClient] = [FakeLlmClient()]
     if gemini := GeminiOptions.from_env():
         clients.append(GeminiClient(gemini, http))
+    if claude := ClaudeOptions.from_env():
+        clients.append(ClaudeClient(claude))
     return LlmRegistry(clients)

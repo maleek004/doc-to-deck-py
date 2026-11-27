@@ -116,7 +116,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     every time. `async with` closes the pool cleanly at shutdown."""
     async with httpx.AsyncClient() as http:
         app.state.llms = build_registry(http)
-        yield
+        try:
+            yield
+        finally:
+            await app.state.llms.aclose()  # clients that own a pool (the Claude SDK) close it here
 
 
 def create_app() -> FastAPI:
