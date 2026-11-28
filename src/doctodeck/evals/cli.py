@@ -15,10 +15,13 @@ import asyncio
 import os
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 
+from doctodeck.costs.ledger import Ledger
+from doctodeck.costs.prices import PRICES
 from doctodeck.evals.golden import GOLDEN_DIR, load_golden_set
 from doctodeck.evals.report import markdown_report
 from doctodeck.evals.runner import EvalSettings, RunFile, RunFileError, read_run, resume_eval, start_eval
@@ -80,11 +83,12 @@ async def _run(args: argparse.Namespace) -> int:
 
     cache = None if args.no_cache else _cache()
     async with httpx.AsyncClient() as http:
-        llms = build_registry(http, cache)
+        llms = build_registry(http, cache, Ledger.from_env())  # eval calls cost money too
         try:
             # Only real clients are wrapped in the cache (registry.py): a fake run is never "cached".
             cached = cache is not None and llms.get(provider).is_real
-            settings = EvalSettings(provider=provider, prompts=prompts, cached=cached)
+            today = datetime.now(UTC).date()
+            settings = EvalSettings(provider=provider, prompts=prompts, cached=cached, prices=PRICES.prices_on(today))
             if args.resume:
                 run = await resume_eval(args.resume, cases, llms, settings, progress=print)
             else:

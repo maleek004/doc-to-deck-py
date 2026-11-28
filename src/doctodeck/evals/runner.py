@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from doctodeck.costs.ledger import deck_scope
 from doctodeck.evals.golden import GoldenCase
 from doctodeck.evals.metrics import CallRecord, DeckMetrics, DeckRun, SetSummary, TokenPrice, deck_metrics, summarize
 from doctodeck.llm.contracts import LlmError, LlmErrorCode
@@ -207,7 +208,8 @@ async def _run_cases(path: Path, cases: Sequence[GoldenCase], llms: LlmRegistry,
                      progress: Callable[[str], None]) -> RunFile:  # fmt: skip
     for case in cases:
         try:
-            record = await run_case(case, llms, settings)
+            with deck_scope(f"{path.stem}/{case.id}"):  # the ledger groups each case's calls
+                record = await run_case(case, llms, settings)
         except LlmError as ex:
             _append(path, StopRecord(case_id=case.id, error_code=ex.code, message=ex.message))
             progress(f"{case.id}: stopped, {ex.code}: {ex.message}")

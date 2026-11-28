@@ -14,6 +14,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 
+from doctodeck.costs.ledger import DeckCost, Ledger, LedgerEntry, deck_scope
 from doctodeck.errors import DocumentErrorCode, DocumentParsingError
 from doctodeck.evals.report import run_summary, summary_rows
 from doctodeck.evals.runner import RunFileError, latest_run, read_run
@@ -146,6 +147,19 @@ def build_eval_report(path: Path) -> EvalReport:
     )
 
 
+def get_ledger(request: Request) -> Ledger:
+    return request.app.state.ledger
+
+
+class LedgerView(ApiModel):
+    """GET /api/ledger: recent calls, cost per deck, and what real providers cost today and ever."""
+
+    entries: list[LedgerEntry]
+    decks: list[DeckCost]
+    spent_today_usd: float
+    spent_total_usd: float
+
+
 def get_pipeline_options() -> PipelineOptions:
     return PipelineOptions()
 
@@ -194,7 +208,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     every time. `async with` closes the pool cleanly at shutdown."""
     async with httpx.AsyncClient() as http:
         # LLM_CACHE set: real providers answer repeat requests from a SQLite file (llm/cache.py).
-        app.state.llms = build_registry(http, ResponseCache.from_env())
+        app.state.ledger = Ledger.from_env()  # every call is recorded, with its cost (Layer 4)
+        app.state.llms = build_registry(http, ResponseCache.from_env(), app.state.ledger)
         try:
             yield
         finally:
@@ -250,13 +265,27 @@ def create_app() -> FastAPI:
     # JSON bodies: FastAPI validates them against the Pydantic model before the function runs.
     @app.post("/api/plan", responses={400: {"model": ApiError}, 502: {"model": ApiError}})
     async def plan(body: PlanRequest, planner: Annotated[DeckPlanner, Depends(get_planner)]) -> PlanResult:
-        return await planner.plan(body)
+        with deck_scope(body.deck_id):  # the ledger files this call under the page's deck
+            return await planner.plan(body)
 
     @app.post("/api/generate", responses={400: {"model": ApiError}, 502: {"model": ApiError}})
     async def generate(
         body: GenerateRequest, generator: Annotated[CardGenerator, Depends(get_generator)]
     ) -> GenerateResult:
-        return await generator.generate(body)
+        with deck_scope(body.deck_id):
+            return await generator.generate(body)
+
+    @app.get("/api/ledger")
+    async def ledger_view(ledger: Annotated[Ledger, Depends(get_ledger)], limit: int = 50) -> LedgerView:
+        from datetime import UTC, datetime
+
+        limit = max(1, min(limit, 500))
+        return LedgerView(
+            entries=await ledger.recent(limit),
+            decks=await ledger.decks(20),
+            spent_today_usd=await ledger.spent(datetime.now(UTC).date().isoformat()),
+            spent_total_usd=await ledger.spent(),
+        )
 
     @app.get("/api/evals/latest", response_model=EvalReport, responses={404: {"model": ApiError}})
     async def latest_eval(runs_dir: Annotated[Path, Depends(get_eval_runs_dir)]) -> EvalReport | JSONResponse:

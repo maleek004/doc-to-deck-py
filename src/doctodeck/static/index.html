@@ -69,11 +69,27 @@
     </table>
   </section>
 
+  <!-- Panel 4 (Layer 4): every LLM call and what it cost -->
+  <section id="panel-ledger">
+    <h2>4. Usage ledger</h2>
+    <p><button id="ledger-button" type="button">Refresh ledger</button></p>
+    <p id="ledger-status"></p>
+    <table id="ledger-decks" hidden border="1" cellpadding="4">
+      <thead><tr><th>Deck</th><th>Started (UTC)</th><th>Calls</th><th>Failed</th><th>Tokens in</th><th>Tokens out</th><th>Cost</th><th>Time</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <table id="ledger-calls" hidden border="1" cellpadding="4">
+      <thead><tr><th>#</th><th>At (UTC)</th><th>Deck</th><th>Step</th><th>Provider/model</th><th>In</th><th>Out</th><th>Cached</th><th>Cost</th><th>ms</th><th>Outcome</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
   <script>
     // What the server has told us so far. The server keeps nothing between calls,
     // so each step sends what the next one needs.
     let parsed = null; // from /api/parse
     let plan = null;   // from /api/plan
+    let deckId = null; // one per parsed document: the ledger groups its plan and generate calls under it
 
     const $ = (id) => document.getElementById(id);
 
@@ -125,6 +141,7 @@
       }
 
       parsed = body;
+      deckId = crypto.randomUUID();
       const doc = body.document;
       $("parse-status").textContent =
         `${body.fileName}: ${doc.pageCount} page(s), ${doc.wordCount} words, ${doc.sections.length} section(s).`;
@@ -163,6 +180,7 @@
       const doc = parsed.document;
       const [ok, status, body] = await post("/api/plan", {
         provider: $("provider").value,
+        deckId,
         sourceTitle: parsed.fileName,
         sections: doc.sections,
         wordCount: doc.wordCount,
@@ -199,6 +217,7 @@
 
       const [ok, status, body] = await post("/api/generate", {
         provider: $("provider").value,
+        deckId,
         sourceTitle: parsed.fileName,
         sections: parsed.document.sections,
         cleanText: parsed.document.cleanText,
@@ -240,6 +259,30 @@
         [c.caseId, c.status, c.cards, c.factCoverage, c.missedFacts.join(", "), c.mustNotHits.join(", ")]));
       $("eval-summary").hidden = false;
       $("eval-cases").hidden = false;
+    });
+
+    // ---------- Panel 4 ----------
+    const usd = (value) => (value === null ? "unpriced" : `$${value.toFixed(6)}`);
+    const shortId = (id) => (id ? id.slice(0, 8) : "");
+
+    $("ledger-button").addEventListener("click", async () => {
+      const response = await fetch("/api/ledger");
+      const body = await response.json();
+      for (const id of ["ledger-decks", "ledger-calls"]) $(id).tBodies[0].replaceChildren();
+      if (!response.ok) {
+        $("ledger-status").textContent = `${body.error}: ${body.message}`;
+        return;
+      }
+      $("ledger-status").textContent =
+        `Real providers: ${usd(body.spentTodayUsd)} today (UTC), ${usd(body.spentTotalUsd)} in all. ` +
+        `${body.entries.length} most recent call(s) below.`;
+      body.decks.forEach((d) => addRow($("ledger-decks").tBodies[0], [shortId(d.deckId), d.startedAt, d.calls,
+        d.failedCalls, d.promptTokens, d.completionTokens, usd(d.costUsd), `${(d.latencyMs / 1000).toFixed(1)} s`]));
+      body.entries.forEach((e) => addRow($("ledger-calls").tBodies[0], [e.id, e.at, shortId(e.deckId), e.purpose,
+        `${e.provider}/${e.model}`, e.promptTokens, e.completionTokens, e.cached ? "yes" : "", usd(e.costUsd),
+        e.latencyMs, e.outcome]));
+      $("ledger-decks").hidden = body.decks.length === 0;
+      $("ledger-calls").hidden = body.entries.length === 0;
     });
 
     loadProviders();

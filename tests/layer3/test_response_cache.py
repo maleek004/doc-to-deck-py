@@ -219,8 +219,9 @@ def test_llm_cache_wraps_real_providers_only(monkeypatch, tmp_path):
         clients = {c.provider: c for c in client.app.state.llms.all}
         providers = client.get("/api/providers").json()
 
-    assert isinstance(clients["gemini"], CachingLlmClient)
-    assert not isinstance(clients["fake"], CachingLlmClient)  # free, and tests script it
+    # The app wraps every client in the ledger (outermost); look underneath it.
+    assert isinstance(clients["gemini"].inner, CachingLlmClient)
+    assert not isinstance(clients["fake"].inner, CachingLlmClient)  # free, and tests script it
     assert [p["provider"] for p in providers] == ["fake", "gemini"]  # the dropdown can't tell the difference
     assert (tmp_path / "llm.sqlite3").exists()
 
@@ -231,4 +232,4 @@ def test_no_llm_cache_means_no_wrapper(monkeypatch):
     with TestClient(create_app()) as client:
         gemini = client.app.state.llms.get("gemini")
 
-    assert isinstance(gemini, GeminiClient)
+    assert isinstance(gemini.inner, GeminiClient)  # under the ledger, nothing else

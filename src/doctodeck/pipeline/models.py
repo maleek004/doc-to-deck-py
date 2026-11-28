@@ -64,6 +64,7 @@ class PlanRequest(ApiModel):
     """POST /api/plan: the outline from /api/parse plus which provider to use."""
 
     provider: str
+    deck_id: str | None = None  # groups this call with the generate call in the usage ledger (Layer 4)
     source_title: str
     sections: list[DocumentSection]
     word_count: int
@@ -90,6 +91,7 @@ class GenerateRequest(ApiModel):
     """POST /api/generate: the outline, the clean text, and the modules the user kept."""
 
     provider: str
+    deck_id: str | None = None  # the same id the plan call sent
     source_title: str
     sections: list[DocumentSection]
     clean_text: str

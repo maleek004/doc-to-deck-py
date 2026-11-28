@@ -10,6 +10,8 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def no_provider_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+def no_provider_keys(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     for name in ("GEMINI_API_KEY", "GEMINI_MODEL", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "LLM_CACHE"):
         monkeypatch.delenv(name, raising=False)
+    # Every app a test builds records into its own throwaway ledger, never data/ledger.sqlite3.
+    monkeypatch.setenv("LEDGER_DB", str(tmp_path / "ledger.sqlite3"))

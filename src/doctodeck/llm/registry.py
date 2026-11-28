@@ -4,6 +4,7 @@ from collections.abc import Iterable
 
 import httpx
 
+from doctodeck.costs.ledger import Ledger, LedgerLlmClient
 from doctodeck.llm.cache import CachingLlmClient, ResponseCache
 from doctodeck.llm.claude import ClaudeClient, ClaudeOptions
 from doctodeck.llm.contracts import LlmClient, LlmError, LlmErrorCode
@@ -34,12 +35,17 @@ class LlmRegistry:
                 await close()
 
 
-def build_registry(http: httpx.AsyncClient, cache: ResponseCache | None = None) -> LlmRegistry:
+def build_registry(
+    http: httpx.AsyncClient, cache: ResponseCache | None = None, ledger: Ledger | None = None
+) -> LlmRegistry:
     """The app's providers: the fake always; Gemini and Claude only when their keys are set.
     A provider with no key is simply absent, so the app still works end to end on the fake.
 
     With a cache, each *real* client is wrapped in a CachingLlmClient. The fake isn't: it costs nothing, and
-    caching it would hide the scripted answers and failures tests queue on it."""
+    caching it would hide the scripted answers and failures tests queue on it.
+
+    With a ledger, every client (the fake too) is wrapped outermost in a LedgerLlmClient, so each call is recorded
+    as the user experienced it: ledger → cache → provider. A cache hit is then a recorded call that cost nothing."""
     real: list[LlmClient] = []
     if gemini := GeminiOptions.from_env():
         real.append(GeminiClient(gemini, http))
@@ -47,4 +53,7 @@ def build_registry(http: httpx.AsyncClient, cache: ResponseCache | None = None) 
         real.append(ClaudeClient(claude))
     if cache is not None:
         real = [CachingLlmClient(client, cache) for client in real]
-    return LlmRegistry([FakeLlmClient(), *real])
+    clients: list[LlmClient] = [FakeLlmClient(), *real]
+    if ledger is not None:
+        clients = [LedgerLlmClient(client, ledger) for client in clients]
+    return LlmRegistry(clients)

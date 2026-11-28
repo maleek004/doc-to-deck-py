@@ -21,6 +21,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
+from doctodeck.costs.prices import ModelPrice, TokenPrice
 from doctodeck.evals.golden import GoldenExpect
 from doctodeck.llm.contracts import LlmErrorCode, LlmUsage
 from doctodeck.models import ApiModel, ParsedDocument
@@ -68,17 +69,6 @@ class DeckRun:
     calls: Sequence[CallRecord]
     truncated: bool = False
     repairs: Sequence[str] = field(default_factory=tuple)
-
-
-@dataclass(frozen=True)
-class TokenPrice:
-    """US dollars per million tokens. Layer 4 owns the real price table; evals only need to be handed one."""
-
-    input_per_million: float
-    output_per_million: float
-
-    def cost(self, prompt_tokens: int, completion_tokens: int) -> float:
-        return (prompt_tokens * self.input_per_million + completion_tokens * self.output_per_million) / 1_000_000
 
 
 # ---------- Outputs ----------
@@ -241,7 +231,7 @@ def percentile(values: Sequence[float], p: float) -> float | None:
     return ordered[rank - 1]
 
 
-def calls_cost(calls: Iterable[CallRecord], prices: Mapping[str, TokenPrice]) -> float | None:
+def calls_cost(calls: Iterable[CallRecord], prices: Mapping[str, TokenPrice | ModelPrice]) -> float | None:
     """What the calls cost at list price, cached ones included (a cached answer still cost this once; what was
     *spent this run* is Layer 4's ledger). None if any model used has no price: a partial sum would look cheap."""
     total = 0.0
@@ -258,7 +248,7 @@ def calls_cost(calls: Iterable[CallRecord], prices: Mapping[str, TokenPrice]) ->
 # ---------- Per deck and per set ----------
 
 
-def deck_metrics(run: DeckRun, prices: Mapping[str, TokenPrice] | None = None) -> DeckMetrics:
+def deck_metrics(run: DeckRun, prices: Mapping[str, TokenPrice | ModelPrice] | None = None) -> DeckMetrics:
     cards, expect, document = run.cards, run.expect, run.document
     n = len(cards)
     covered, missed = fact_coverage(expect, cards)
