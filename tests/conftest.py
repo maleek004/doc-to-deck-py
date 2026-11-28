@@ -15,3 +15,6 @@ def no_provider_keys(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         monkeypatch.delenv(name, raising=False)
     # Every app a test builds records into its own throwaway ledger, never data/ledger.sqlite3.
     monkeypatch.setenv("LEDGER_DB", str(tmp_path / "ledger.sqlite3"))
+    # And its own wallet, opened with the default balance, never data/wallet.sqlite3.
+    monkeypatch.setenv("WALLET_DB", str(tmp_path / "wallet.sqlite3"))
+    monkeypatch.delenv("WALLET_START_CREDITS", raising=False)

@@ -18,6 +18,19 @@ from doctodeck.pipeline.models import (
 from doctodeck.pipeline.prompts import CardsPromptInput, CardsPromptModule
 
 
+def target_cards(request: GenerateRequest, options: PipelineOptions) -> int:
+    """How many cards the model is asked for: the page's number, clamped to 3..max (default when not given)."""
+    return max(3, min(request.target_card_count or options.default_target_cards, options.max_target_cards))
+
+
+def source_text(request: GenerateRequest, options: PipelineOptions) -> tuple[str, str]:
+    """(the whole clean text, the part the model is sent). The wallet prices the part sent, not the whole.
+    Python strings index by code point, so this slice can't split an emoji in half
+    (C# strings are UTF-16 and needed a surrogate-pair check here)."""
+    text = request.clean_text.strip()
+    return text, text[: options.max_source_chars]
+
+
 class CardGenerator:
     def __init__(
         self, llms: LlmRegistry, options: PipelineOptions, prompt_set: prompts.PromptSet = prompts.DEFAULT_PROMPTS
@@ -34,14 +47,11 @@ class CardGenerator:
 
         llm = self._llms.get(request.provider)
         options = self._options
-        target = max(3, min(request.target_card_count or options.default_target_cards, options.max_target_cards))
+        target = target_cards(request, options)
 
         # Send at most max_source_chars, and say so when the text was cut (AnkiX cuts silently).
-        # Python strings index by code point, so this slice can't split an emoji in half
-        # (C# strings are UTF-16 and needed a surrogate-pair check here).
-        text = request.clean_text.strip()
-        truncated = len(text) > options.max_source_chars
-        sent = text[: options.max_source_chars]
+        text, sent = source_text(request, options)
+        truncated = len(sent) < len(text)
 
         sections = request.sections
 

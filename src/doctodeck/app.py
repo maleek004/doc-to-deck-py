@@ -14,7 +14,9 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 
+from doctodeck.costs.billing import INSUFFICIENT_CREDITS, ChargedGenerateResult, InsufficientCredits, generate_charged
 from doctodeck.costs.ledger import DeckCost, Ledger, LedgerEntry, deck_scope
+from doctodeck.costs.wallet import TopUpResult, Wallet, WalletTransaction
 from doctodeck.errors import DocumentErrorCode, DocumentParsingError
 from doctodeck.evals.report import run_summary, summary_rows
 from doctodeck.evals.runner import RunFileError, latest_run, read_run
@@ -27,7 +29,6 @@ from doctodeck.pipeline.generator import CardGenerator
 from doctodeck.pipeline.models import (
     INVALID_REQUEST,
     GenerateRequest,
-    GenerateResult,
     PipelineOptions,
     PipelineRequestError,
     PlanRequest,
@@ -160,6 +161,22 @@ class LedgerView(ApiModel):
     spent_total_usd: float
 
 
+def get_wallet(request: Request) -> Wallet:
+    return request.app.state.wallet
+
+
+class WalletView(ApiModel):
+    """GET /api/wallet: the balance and its latest changes."""
+
+    balance: int
+    transactions: list[WalletTransaction]
+
+
+class TopUpRequest(ApiModel):
+    credits: int
+    reference: str  # one per click on the page: a retried request with the same reference adds nothing
+
+
 def get_pipeline_options() -> PipelineOptions:
     return PipelineOptions()
 
@@ -209,6 +226,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with httpx.AsyncClient() as http:
         # LLM_CACHE set: real providers answer repeat requests from a SQLite file (llm/cache.py).
         app.state.ledger = Ledger.from_env()  # every call is recorded, with its cost (Layer 4)
+        app.state.wallet = Wallet.from_env()  # credits: what generating a deck costs the user (4.2)
         app.state.llms = build_registry(http, ResponseCache.from_env(), app.state.ledger)
         try:
             yield
@@ -230,6 +248,10 @@ def create_app() -> FastAPI:
     @app.exception_handler(PipelineRequestError)
     async def on_pipeline_request_error(_: Request, ex: PipelineRequestError) -> JSONResponse:
         return error_response(status.HTTP_400_BAD_REQUEST, INVALID_REQUEST, str(ex))
+
+    @app.exception_handler(InsufficientCredits)
+    async def on_insufficient_credits(_: Request, ex: InsufficientCredits) -> JSONResponse:
+        return error_response(status.HTTP_402_PAYMENT_REQUIRED, INSUFFICIENT_CREDITS, str(ex))
 
     @app.exception_handler(RequestValidationError)
     async def on_invalid_body(_: Request, ex: RequestValidationError) -> JSONResponse:
@@ -268,12 +290,28 @@ def create_app() -> FastAPI:
         with deck_scope(body.deck_id):  # the ledger files this call under the page's deck
             return await planner.plan(body)
 
-    @app.post("/api/generate", responses={400: {"model": ApiError}, 502: {"model": ApiError}})
+    @app.post("/api/generate", responses={400: {"model": ApiError}, 402: {"model": ApiError}, 502: {"model": ApiError}})
     async def generate(
-        body: GenerateRequest, generator: Annotated[CardGenerator, Depends(get_generator)]
-    ) -> GenerateResult:
+        body: GenerateRequest,
+        generator: Annotated[CardGenerator, Depends(get_generator)],
+        wallet: Annotated[Wallet, Depends(get_wallet)],
+        options: Annotated[PipelineOptions, Depends(get_pipeline_options)],
+    ) -> ChargedGenerateResult:
+        """Pre-flight credit check, generate, then charge (costs/billing.py). 402 if the credits don't cover it."""
         with deck_scope(body.deck_id):
-            return await generator.generate(body)
+            return await generate_charged(generator, wallet, body, options)
+
+    @app.get("/api/wallet")
+    async def wallet_view(wallet: Annotated[Wallet, Depends(get_wallet)]) -> WalletView:
+        return WalletView(balance=await wallet.balance(), transactions=await wallet.transactions(20))
+
+    @app.post("/api/wallet/top-up", responses={400: {"model": ApiError}})
+    async def top_up(body: TopUpRequest, wallet: Annotated[Wallet, Depends(get_wallet)]) -> TopUpResult:
+        """No payment here: the kata has one local wallet. Idempotent on `reference`, as AnkiX's purchase grant."""
+        try:
+            return await wallet.top_up(body.credits, body.reference)
+        except ValueError as ex:
+            raise PipelineRequestError(str(ex)) from ex  # a 400 INVALID_REQUEST, like any bad body
 
     @app.get("/api/ledger")
     async def ledger_view(ledger: Annotated[Ledger, Depends(get_ledger)], limit: int = 50) -> LedgerView:
