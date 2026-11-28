@@ -20,6 +20,7 @@ from pathlib import Path
 
 import httpx
 
+from doctodeck.costs.guardrails import Guardrails
 from doctodeck.costs.ledger import Ledger
 from doctodeck.costs.prices import PRICES
 from doctodeck.evals.golden import GOLDEN_DIR, load_golden_set
@@ -83,7 +84,8 @@ async def _run(args: argparse.Namespace) -> int:
 
     cache = None if args.no_cache else _cache()
     async with httpx.AsyncClient() as http:
-        llms = build_registry(http, cache, Ledger.from_env())  # eval calls cost money too
+        # Eval calls cost money too: recorded in the ledger, and under the same daily cap as the app.
+        llms = build_registry(http, cache, Ledger.from_env(), Guardrails.from_env())
         try:
             # Only real clients are wrapped in the cache (registry.py): a fake run is never "cached".
             cached = cache is not None and llms.get(provider).is_real

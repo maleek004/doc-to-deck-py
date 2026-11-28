@@ -15,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 
 from doctodeck.costs.billing import INSUFFICIENT_CREDITS, ChargedGenerateResult, InsufficientCredits, generate_charged
+from doctodeck.costs.guardrails import Guardrails
 from doctodeck.costs.ledger import DeckCost, Ledger, LedgerEntry, deck_scope
 from doctodeck.costs.wallet import TopUpResult, Wallet, WalletTransaction
 from doctodeck.errors import DocumentErrorCode, DocumentParsingError
@@ -159,6 +160,7 @@ class LedgerView(ApiModel):
     decks: list[DeckCost]
     spent_today_usd: float
     spent_total_usd: float
+    daily_cap_usd: float  # real providers are refused once today's spend reaches it
 
 
 def get_wallet(request: Request) -> Wallet:
@@ -211,6 +213,9 @@ _LLM_STATUS_BY_CODE = {
     LlmErrorCode.REFUSED: status.HTTP_422_UNPROCESSABLE_CONTENT,  # the content was declined
     LlmErrorCode.RATE_LIMITED: status.HTTP_503_SERVICE_UNAVAILABLE,  # busy even after retries; try later
     LlmErrorCode.TIMEOUT: status.HTTP_504_GATEWAY_TIMEOUT,
+    LlmErrorCode.INPUT_TOO_LARGE: status.HTTP_413_CONTENT_TOO_LARGE,  # the request's own size
+    LlmErrorCode.SPEND_CAP_REACHED: status.HTTP_503_SERVICE_UNAVAILABLE,  # off until midnight UTC
+    LlmErrorCode.UNPRICED_MODEL: status.HTTP_503_SERVICE_UNAVAILABLE,  # a configuration problem on our side
 }  # anything else: 502 Bad Gateway, the upstream provider misbehaved or sent bad output
 
 
@@ -227,7 +232,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # LLM_CACHE set: real providers answer repeat requests from a SQLite file (llm/cache.py).
         app.state.ledger = Ledger.from_env()  # every call is recorded, with its cost (Layer 4)
         app.state.wallet = Wallet.from_env()  # credits: what generating a deck costs the user (4.2)
-        app.state.llms = build_registry(http, ResponseCache.from_env(), app.state.ledger)
+        app.state.guardrails = Guardrails.from_env()  # input budget and daily cap on real providers (4.3)
+        app.state.llms = build_registry(http, ResponseCache.from_env(), app.state.ledger, app.state.guardrails)
         try:
             yield
         finally:
@@ -314,7 +320,9 @@ def create_app() -> FastAPI:
             raise PipelineRequestError(str(ex)) from ex  # a 400 INVALID_REQUEST, like any bad body
 
     @app.get("/api/ledger")
-    async def ledger_view(ledger: Annotated[Ledger, Depends(get_ledger)], limit: int = 50) -> LedgerView:
+    async def ledger_view(
+        request: Request, ledger: Annotated[Ledger, Depends(get_ledger)], limit: int = 50
+    ) -> LedgerView:
         from datetime import UTC, datetime
 
         limit = max(1, min(limit, 500))
@@ -323,6 +331,7 @@ def create_app() -> FastAPI:
             decks=await ledger.decks(20),
             spent_today_usd=await ledger.spent(datetime.now(UTC).date().isoformat()),
             spent_total_usd=await ledger.spent(),
+            daily_cap_usd=request.app.state.guardrails.daily_cap_usd,
         )
 
     @app.get("/api/evals/latest", response_model=EvalReport, responses={404: {"model": ApiError}})

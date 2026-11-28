@@ -37,7 +37,14 @@ from doctodeck.pipeline.prompts import PromptSet
 
 # The provider can't be reached or won't serve us: stop the run rather than score an outage as a bad deck.
 STOPPING_ERRORS = frozenset(
-    {LlmErrorCode.RATE_LIMITED, LlmErrorCode.TIMEOUT, LlmErrorCode.PROVIDER_ERROR, LlmErrorCode.UNKNOWN_PROVIDER}
+    {
+        LlmErrorCode.RATE_LIMITED,
+        LlmErrorCode.TIMEOUT,
+        LlmErrorCode.PROVIDER_ERROR,
+        LlmErrorCode.UNKNOWN_PROVIDER,
+        LlmErrorCode.SPEND_CAP_REACHED,  # every later case would be refused too: stop, resume tomorrow
+        LlmErrorCode.UNPRICED_MODEL,
+    }
 )
 
 

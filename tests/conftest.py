@@ -18,3 +18,5 @@ def no_provider_keys(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     # And its own wallet, opened with the default balance, never data/wallet.sqlite3.
     monkeypatch.setenv("WALLET_DB", str(tmp_path / "wallet.sqlite3"))
     monkeypatch.delenv("WALLET_START_CREDITS", raising=False)
+    for name in ("MAX_INPUT_TOKENS", "DAILY_SPEND_CAP_USD"):  # the defaults, whatever the developer set
+        monkeypatch.delenv(name, raising=False)

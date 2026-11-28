@@ -296,7 +296,8 @@
         return;
       }
       $("ledger-status").textContent =
-        `Real providers: ${usd(body.spentTodayUsd)} today (UTC), ${usd(body.spentTotalUsd)} in all. ` +
+        `Real providers: ${usd(body.spentTodayUsd)} today (UTC) of a $${body.dailyCapUsd.toFixed(2)} daily cap, ` +
+        `${usd(body.spentTotalUsd)} in all. ` +
         `${body.entries.length} most recent call(s) below.`;
       body.decks.forEach((d) => addRow($("ledger-decks").tBodies[0], [shortId(d.deckId), d.startedAt, d.calls,
         d.failedCalls, d.promptTokens, d.completionTokens, usd(d.costUsd), `${(d.latencyMs / 1000).toFixed(1)} s`]));

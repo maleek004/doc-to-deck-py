@@ -232,4 +232,4 @@ def test_no_llm_cache_means_no_wrapper(monkeypatch):
     with TestClient(create_app()) as client:
         gemini = client.app.state.llms.get("gemini")
 
-    assert isinstance(gemini.inner, GeminiClient)  # under the ledger, nothing else
+    assert isinstance(gemini.inner.inner, GeminiClient)  # under the ledger, only the guard (4.3)

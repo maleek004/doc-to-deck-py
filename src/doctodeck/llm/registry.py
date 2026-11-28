@@ -4,6 +4,7 @@ from collections.abc import Iterable
 
 import httpx
 
+from doctodeck.costs.guardrails import GuardedLlmClient, Guardrails
 from doctodeck.costs.ledger import Ledger, LedgerLlmClient
 from doctodeck.llm.cache import CachingLlmClient, ResponseCache
 from doctodeck.llm.claude import ClaudeClient, ClaudeOptions
@@ -36,7 +37,10 @@ class LlmRegistry:
 
 
 def build_registry(
-    http: httpx.AsyncClient, cache: ResponseCache | None = None, ledger: Ledger | None = None
+    http: httpx.AsyncClient,
+    cache: ResponseCache | None = None,
+    ledger: Ledger | None = None,
+    guardrails: Guardrails | None = None,
 ) -> LlmRegistry:
     """The app's providers: the fake always; Gemini and Claude only when their keys are set.
     A provider with no key is simply absent, so the app still works end to end on the fake.
@@ -45,12 +49,18 @@ def build_registry(
     caching it would hide the scripted answers and failures tests queue on it.
 
     With a ledger, every client (the fake too) is wrapped outermost in a LedgerLlmClient, so each call is recorded
-    as the user experienced it: ledger → cache → provider. A cache hit is then a recorded call that cost nothing."""
+    as the user experienced it: ledger → cache → provider. A cache hit is then a recorded call that cost nothing.
+
+    With guardrails (and a ledger, which the daily cap reads), each real client is wrapped first, innermost:
+    ledger → cache → guard → provider. A cached answer is still served once the cap is reached (it's free), and
+    a refusal is recorded in the ledger like any failed call."""
     real: list[LlmClient] = []
     if gemini := GeminiOptions.from_env():
         real.append(GeminiClient(gemini, http))
     if claude := ClaudeOptions.from_env():
         real.append(ClaudeClient(claude))
+    if guardrails is not None and ledger is not None:
+        real = [GuardedLlmClient(client, ledger, guardrails) for client in real]
     if cache is not None:
         real = [CachingLlmClient(client, cache) for client in real]
     clients: list[LlmClient] = [FakeLlmClient(), *real]

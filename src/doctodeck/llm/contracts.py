@@ -87,6 +87,10 @@ class LlmErrorCode(StrEnum):
     TRUNCATED = "PROVIDER_OUTPUT_TRUNCATED"  # hit the output token limit
     PROVIDER_ERROR = "PROVIDER_ERROR"  # 5xx, bad key, network
     INVALID_OUTPUT = "INVALID_MODEL_OUTPUT"  # not JSON, or the wrong shape
+    # Guardrails (4.3): refused before anything is sent, so nothing is spent.
+    INPUT_TOO_LARGE = "INPUT_TOO_LARGE"  # over the input token budget
+    SPEND_CAP_REACHED = "SPEND_CAP_REACHED"  # real providers have cost the daily cap today
+    UNPRICED_MODEL = "UNPRICED_MODEL"  # no price known, so the cap could not be enforced
 
 
 class LlmError(Exception):
