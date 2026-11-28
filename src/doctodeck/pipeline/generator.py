@@ -19,9 +19,12 @@ from doctodeck.pipeline.prompts import CardsPromptInput, CardsPromptModule
 
 
 class CardGenerator:
-    def __init__(self, llms: LlmRegistry, options: PipelineOptions) -> None:
+    def __init__(
+        self, llms: LlmRegistry, options: PipelineOptions, prompt_set: prompts.PromptSet = prompts.DEFAULT_PROMPTS
+    ) -> None:
         self._llms = llms
         self._options = options
+        self._prompts = prompt_set  # which prompt version to send (the eval runner compares versions)
 
     async def generate(self, request: GenerateRequest) -> GenerateResult:
         if not request.modules:
@@ -60,7 +63,7 @@ class CardGenerator:
             text=sent,
         )
 
-        result = await llm.complete(prompts.cards_request(prompt_input))
+        result = await llm.complete(self._prompts.cards(prompt_input))
 
         repairs: list[str] = []
         cards = _build_cards(result.data, request.modules, repairs)

@@ -15,6 +15,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 
 from doctodeck.errors import DocumentErrorCode, DocumentParsingError
+from doctodeck.evals.report import run_summary, summary_rows
+from doctodeck.evals.runner import RunFileError, latest_run, read_run
 from doctodeck.llm.cache import ResponseCache
 from doctodeck.llm.contracts import LlmError, LlmErrorCode
 from doctodeck.llm.registry import LlmRegistry, build_registry
@@ -67,6 +69,81 @@ def get_parser_options() -> ParserOptions:
 def get_llm_registry(request: Request) -> LlmRegistry:
     """The registry built once at startup (see lifespan). Tests override this to add a scripted fake."""
     return request.app.state.llms
+
+
+class EvalCaseRow(ApiModel):
+    case_id: str
+    status: str
+    cards: int
+    fact_coverage: str  # formatted, e.g. "62% (5/8)"
+    missed_facts: list[str]
+    must_not_hits: list[str]
+
+
+class EvalMetricRow(ApiModel):
+    label: str
+    value: str
+
+
+class EvalReport(ApiModel):
+    """GET /api/evals/latest: the newest run file, already formatted, for panel 3."""
+
+    run_id: str
+    provider: str
+    model: str
+    prompt_version: str
+    started_at: str
+    complete: bool
+    stopped: str | None  # why the run stopped early, if it did
+    summary: list[EvalMetricRow]
+    cases: list[EvalCaseRow]
+
+
+NO_EVAL_RUNS = "NO_EVAL_RUNS"
+EVAL_RUN_UNREADABLE = "EVAL_RUN_UNREADABLE"
+
+
+def get_eval_runs_dir() -> Path:
+    """Where `doctodeck-eval run` writes. A dependency, so tests point it at a temporary folder."""
+    from doctodeck.evals.cli import RUNS_DIR
+
+    return RUNS_DIR
+
+
+def build_eval_report(path: Path) -> EvalReport:
+    run = read_run(path)
+    summary = run_summary(run)
+    cases = []
+    for case_id in run.header.cases:
+        deck = run.decks.get(case_id)
+        if deck is None:
+            cases.append(EvalCaseRow(case_id=case_id, status="not run", cards=0, fact_coverage="",
+                                     missed_facts=[], must_not_hits=[]))  # fmt: skip
+            continue
+        m = deck.metrics
+        total = len(m.covered_facts) + len(m.missed_facts)
+        cases.append(
+            EvalCaseRow(
+                case_id=case_id,
+                status=deck.status if deck.status == "ok" else f"{deck.status}: {deck.error_code}",
+                cards=m.card_count,
+                fact_coverage=f"{m.fact_coverage:.0%} ({len(m.covered_facts)}/{total})",
+                missed_facts=m.missed_facts,
+                must_not_hits=[hit.rule_id for hit in m.must_not_hits],
+            )
+        )
+    header = run.header
+    return EvalReport(
+        run_id=header.run_id,
+        provider=header.provider,
+        model=header.model,
+        prompt_version=header.prompt_version,
+        started_at=header.started_at,
+        complete=run.complete,
+        stopped=f"{run.stopped.case_id}: {run.stopped.error_code}" if run.stopped else None,
+        summary=[EvalMetricRow(label=label, value=value) for label, value in summary_rows(summary)] if summary else [],
+        cases=cases,
+    )
 
 
 def get_pipeline_options() -> PipelineOptions:
@@ -180,6 +257,18 @@ def create_app() -> FastAPI:
         body: GenerateRequest, generator: Annotated[CardGenerator, Depends(get_generator)]
     ) -> GenerateResult:
         return await generator.generate(body)
+
+    @app.get("/api/evals/latest", response_model=EvalReport, responses={404: {"model": ApiError}})
+    async def latest_eval(runs_dir: Annotated[Path, Depends(get_eval_runs_dir)]) -> EvalReport | JSONResponse:
+        """The newest `doctodeck-eval` run (panel 3). Reading a file is blocking I/O: done on a worker thread."""
+        path = latest_run(runs_dir)
+        if path is None:
+            return error_response(status.HTTP_404_NOT_FOUND, NO_EVAL_RUNS,
+                                  "No eval runs yet. Run: uv run doctodeck-eval run --provider fake")  # fmt: skip
+        try:
+            return await run_in_threadpool(build_eval_report, path)
+        except RunFileError as ex:
+            return error_response(status.HTTP_500_INTERNAL_SERVER_ERROR, EVAL_RUN_UNREADABLE, str(ex))
 
     return app
 

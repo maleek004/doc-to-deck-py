@@ -5,6 +5,10 @@ sent as JSON after a marker line, so the model sees clean structure and the fake
 what a real model would.
 """
 
+import hashlib
+from collections.abc import Callable
+from dataclasses import dataclass
+
 from pydantic import BaseModel
 
 from doctodeck.llm.contracts import LlmRequest
@@ -84,6 +88,40 @@ Rules:
 {INPUT_MARKER}
 {data.model_dump_json(by_alias=True)}"""
     return LlmRequest("cards", CARDS_SYSTEM, prompt, CardsOutput)
+
+
+@dataclass(frozen=True)
+class PromptSet:
+    """One named version of both prompts. The eval runner (3.4) runs the golden set under a version and compares
+    versions; the app always uses DEFAULT_PROMPTS. To try a change, add a new version: don't edit one in place, or
+    old runs stop being comparable (the runner records `fingerprint()` to catch exactly that)."""
+
+    version: str
+    plan: Callable[[PlanPromptInput], LlmRequest[PlanOutput]]
+    cards: Callable[[CardsPromptInput], LlmRequest[CardsOutput]]
+
+    def fingerprint(self) -> str:
+        """A short hash of what this version actually sends, rendered on a fixed sample input. Same version name,
+        different fingerprint = someone edited the prompt in place."""
+        plan = self.plan(_SAMPLE_PLAN_INPUT)
+        cards = self.cards(_SAMPLE_CARDS_INPUT)
+        rendered = "\n".join([plan.system_prompt, plan.user_prompt, cards.system_prompt, cards.user_prompt])
+        return hashlib.sha256(rendered.encode("utf-8")).hexdigest()[:12]
+
+
+_SAMPLE_PLAN_INPUT = PlanPromptInput(
+    source_title="sample", word_count=100, page_count=1, target_modules=1,
+    sections=[PlanPromptSection(index=0, title="S", level=1, words=100, snippet="s")],
+)  # fmt: skip
+_SAMPLE_CARDS_INPUT = CardsPromptInput(
+    source_title="sample", target_card_count=3,
+    modules=[CardsPromptModule(module_index=1, title="M", section_titles=["S"], section_snippets=["s"])], text="t",
+)  # fmt: skip
+
+PROMPT_SETS: dict[str, PromptSet] = {
+    "v1": PromptSet("v1", plan_request, cards_request),
+}
+DEFAULT_PROMPTS = PROMPT_SETS["v1"]
 
 
 def read_input[T: BaseModel](user_prompt: str, input_type: type[T]) -> T:

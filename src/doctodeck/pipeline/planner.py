@@ -32,10 +32,13 @@ class _Draft:
 
 
 class DeckPlanner:
-    def __init__(self, llms: LlmRegistry, options: PipelineOptions) -> None:
+    def __init__(
+        self, llms: LlmRegistry, options: PipelineOptions, prompt_set: prompts.PromptSet = prompts.DEFAULT_PROMPTS
+    ) -> None:
         # Composition: the planner is *given* the registry. AnkiX's services inherit from a base client instead.
         self._llms = llms
         self._options = options
+        self._prompts = prompt_set  # which prompt version to send (the eval runner compares versions)
 
     async def plan(self, request: PlanRequest) -> PlanResult:
         if not request.sections:
@@ -58,7 +61,7 @@ class DeckPlanner:
             ],
         )
 
-        result = await llm.complete(prompts.plan_request(prompt_input))
+        result = await llm.complete(self._prompts.plan(prompt_input))
 
         repairs: list[str] = []
         modules = self.repair(result.data, len(request.sections), repairs)

@@ -52,6 +52,23 @@
     <ul id="repairs"></ul>
   </section>
 
+  <!-- Panel 3 (Layer 3): the newest eval run from `uv run doctodeck-eval run` -->
+  <section id="panel-evals">
+    <h2>3. Latest eval run</h2>
+    <p><button id="eval-button" type="button">Load latest run</button></p>
+    <p id="eval-status"></p>
+    <table id="eval-summary" hidden border="1" cellpadding="4">
+      <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <table id="eval-cases" hidden border="1" cellpadding="4">
+      <thead>
+        <tr><th>Document</th><th>Status</th><th>Cards</th><th>Fact coverage</th><th>Missed facts</th><th>Must-not hits</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
   <script>
     // What the server has told us so far. The server keeps nothing between calls,
     // so each step sends what the next one needs.
@@ -201,6 +218,28 @@
         addRow($("cards").tBodies[0], [i + 1, c.moduleTitle, c.front, c.back, c.qualityScore, c.qualityFlags.join(", ")]));
       showRepairs(body.repairs);
       $("cards").hidden = false;
+    });
+
+    // ---------- Panel 3 ----------
+    $("eval-button").addEventListener("click", async () => {
+      const response = await fetch("/api/evals/latest");
+      const body = await response.json();
+      for (const id of ["eval-summary", "eval-cases"]) {
+        $(id).tBodies[0].replaceChildren();
+        $(id).hidden = true;
+      }
+      if (!response.ok) {
+        $("eval-status").textContent = `${body.error}: ${body.message}`;
+        return;
+      }
+      const state = body.complete ? "complete" : `incomplete, stopped at ${body.stopped}`;
+      $("eval-status").textContent =
+        `${body.runId}: ${body.provider}/${body.model}, prompt ${body.promptVersion}, started ${body.startedAt} (${state}).`;
+      body.summary.forEach((row) => addRow($("eval-summary").tBodies[0], [row.label, row.value]));
+      body.cases.forEach((c) => addRow($("eval-cases").tBodies[0],
+        [c.caseId, c.status, c.cards, c.factCoverage, c.missedFacts.join(", "), c.mustNotHits.join(", ")]));
+      $("eval-summary").hidden = false;
+      $("eval-cases").hidden = false;
     });
 
     loadProviders();
